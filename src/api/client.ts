@@ -41,13 +41,9 @@ export class RagApiClient {
 
   async checkHealth(): Promise<{ status: string; database?: boolean; vector_store?: boolean }> {
     return this.request(
-      '/health/ready',
+      `/health/ready?t=${Date.now()}`,
       {
         cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-          Pragma: 'no-cache',
-        },
       },
       false
     );
