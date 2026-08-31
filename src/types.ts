@@ -22,12 +22,21 @@ export interface ChatMessage {
 
 export interface JourneyState {
   stage?: string;
+  assistant_mode?: 'disabled' | 'sandbox' | 'live';
   linked_entity_type?: string | null;
   linked_entity_id?: number | null;
   confirmed_fields?: string[];
   consent?: boolean;
+  consent_status?: 'not_requested' | 'granted' | 'declined' | 'not_required' | string;
+  profile_draft?: Record<string, unknown>;
+  answered_fields?: string[];
+  declined_fields?: string[];
   cv_status?: string;
   selected_vacancy_id?: number | null;
+  interest_status?: 'none' | 'pending_contact' | 'recorded' | 'failed';
+  selected_vacancy_requirements?: Record<string, unknown>;
+  screening_complete?: boolean;
+  review_ready?: boolean;
   conversion_status?: string | null;
   appointment_status?: string | null;
   handoff_status?: string;
@@ -41,6 +50,10 @@ export interface ChatArtifact {
   fields?: Record<string, any>;
   metadata?: Record<string, any>;
   booking?: Record<string, any>;
+  title?: string;
+  body?: string;
+  accept_label?: string;
+  decline_label?: string;
 }
 
 export interface ToolEvent {
