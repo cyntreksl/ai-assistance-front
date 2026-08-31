@@ -5,6 +5,9 @@ import {
   KnowledgeListResponse,
   KnowledgeUpsertResult,
   SourceTraceItem,
+  ChatArtifact,
+  JourneyState,
+  ToolEvent,
 } from '../types';
 
 export class RagApiClient {
@@ -125,7 +128,10 @@ export class RagApiClient {
       content: string;
       created_at: string;
       sources: SourceTraceItem[];
+      artifacts: ChatArtifact[];
     }>;
+    journey: JourneyState;
+    tool_events: ToolEvent[];
   }> {
     const query = new URLSearchParams({ tenant_id: this.config.tenantId });
     return this.request(`/v1/chat/sessions/${encodeURIComponent(sessionId)}?${query.toString()}`);
@@ -133,12 +139,33 @@ export class RagApiClient {
 
   async sendMessage(
     sessionId: string,
-    message: string
-  ): Promise<{ message_id: string; answer: string; sources: SourceTraceItem[] }> {
+    message: string,
+    actions: Record<string, unknown> = {}
+  ): Promise<{ message_id: string; answer: string; sources: SourceTraceItem[]; artifacts: ChatArtifact[]; journey: JourneyState; tool_events: ToolEvent[] }> {
     const query = new URLSearchParams({ tenant_id: this.config.tenantId });
     return this.request(`/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages?${query.toString()}`, {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, actions }),
     });
+  }
+
+  async uploadCv(sessionId: string, file: File): Promise<{ stored: boolean; filename: string; extraction_status: string; artifact: ChatArtifact }> {
+    const form = new FormData();
+    form.append('cv', file);
+    const res = await fetch(`${this.config.apiUrl}/v1/chat/sessions/${encodeURIComponent(sessionId)}/attachments/cv`, {
+      method: 'POST', headers: { 'X-API-Key': this.config.apiKey }, body: form,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'CV upload failed');
+    return data;
+  }
+
+  async sendOtp(sessionId: string, type: 'mobile' | 'whatsapp' | 'email'): Promise<void> {
+    await this.request(`/v1/chat/sessions/${encodeURIComponent(sessionId)}/otp/send`, { method: 'POST', body: JSON.stringify({ type }) });
+  }
+
+  async verifyOtp(sessionId: string, type: 'mobile' | 'whatsapp' | 'email', code: string): Promise<boolean> {
+    const result = await this.request<{ success: boolean }>(`/v1/chat/sessions/${encodeURIComponent(sessionId)}/otp/verify`, { method: 'POST', body: JSON.stringify({ type, code }) });
+    return result.success;
   }
 }

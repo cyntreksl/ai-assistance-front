@@ -10,14 +10,14 @@ export const DEFAULT_CONFIG: AppConfig = {
     /\/+$/,
     ''
   ),
-  apiKey: getConfigValue(runtimeConfig?.apiKey, import.meta.env.VITE_RAG_API_KEY, 'change-me'),
+  apiKey: sessionStorage.getItem('jobbazaar_sandbox_credential') || runtimeConfig?.apiKey?.trim() || 'change-me',
   tenantId: getConfigValue(runtimeConfig?.tenantId, import.meta.env.VITE_RAG_TENANT_ID, 'jobbazaar'),
   userId: getConfigValue(runtimeConfig?.userId, import.meta.env.VITE_RAG_USER_ID, 'user-1'),
 };
 
 const STORAGE_KEY = 'rag_app_config_v1';
 const LEGACY_STORAGE_KEY = 'rag_app_config';
-const API_KEY_STORAGE_KEY = 'rag_api_key';
+const API_KEY_STORAGE_KEY = 'jobbazaar_sandbox_credential';
 
 export const loadAppConfig = (): AppConfig => {
   try {

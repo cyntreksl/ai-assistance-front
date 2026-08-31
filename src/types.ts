@@ -17,6 +17,36 @@ export interface ChatMessage {
   content: string;
   created_at?: string;
   sources?: SourceTraceItem[];
+  artifacts?: ChatArtifact[];
+}
+
+export interface JourneyState {
+  stage?: string;
+  linked_entity_type?: string | null;
+  linked_entity_id?: number | null;
+  confirmed_fields?: string[];
+  consent?: boolean;
+  cv_status?: string;
+  selected_vacancy_id?: number | null;
+  conversion_status?: string | null;
+  appointment_status?: string | null;
+  handoff_status?: string;
+  [key: string]: unknown;
+}
+
+export interface ChatArtifact {
+  type: 'vacancies' | 'profile_review' | 'otp' | 'interview_slots' | 'appointment' | 'conversion' | 'handoff' | string;
+  status?: string;
+  items?: Array<Record<string, any>>;
+  fields?: Record<string, any>;
+  metadata?: Record<string, any>;
+  booking?: Record<string, any>;
+}
+
+export interface ToolEvent {
+  tool: string;
+  status: string;
+  latency_ms: number;
 }
 
 export interface ChatSession {
@@ -28,6 +58,7 @@ export interface ChatSession {
   created_at: string;
   updated_at: string;
   last_message_at?: string | null;
+  journey?: JourneyState;
 }
 
 export interface KnowledgeUpsertResult {

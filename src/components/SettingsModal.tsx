@@ -55,7 +55,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              RAG API Base URL
+              Anya API Base URL
             </label>
             <div className="relative">
               <input
@@ -72,7 +72,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              Service API Key (X-API-Key)
+              Chat sandbox credential
             </label>
             <div className="relative">
               <Key className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -85,6 +85,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
+            <p className="text-xs text-slate-500 mt-1">Stored only for this browser session. This is not the backoffice service key.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

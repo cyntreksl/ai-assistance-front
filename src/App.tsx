@@ -16,8 +16,8 @@ import {
 type AppRoute = 'knowledge' | 'chat';
 
 const getRouteFromPath = (): AppRoute => {
-  if (window.location.pathname === '/chat') return 'chat';
-  return 'knowledge';
+  if (window.location.pathname === '/knowledge') return 'knowledge';
+  return 'chat';
 };
 
 export const App: React.FC = () => {
@@ -30,8 +30,8 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (window.location.pathname === '/') {
-      window.history.replaceState({}, '', '/knowledge');
-      setActiveRoute('knowledge');
+      window.history.replaceState({}, '', '/chat');
+      setActiveRoute('chat');
     }
 
     const handlePopState = () => setActiveRoute(getRouteFromPath());
@@ -69,9 +69,9 @@ export const App: React.FC = () => {
           </div>
           <div>
             <span className="font-bold text-base tracking-tight text-white flex items-center gap-2">
-              RAG AI Assistant
+              Anya — JobBazaar Recruitment Sandbox
               <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/80">
-                v1.0
+                POC
               </span>
             </span>
           </div>
