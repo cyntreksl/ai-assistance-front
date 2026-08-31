@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppConfig } from '../types';
+import { DEFAULT_CONFIG } from '../config';
 import { X, Key, Server, User, Building, RotateCcw } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -17,16 +18,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [form, setForm] = useState<AppConfig>(config);
 
+  useEffect(() => {
+    if (isOpen) {
+      setForm(config);
+    }
+  }, [config, isOpen]);
+
   if (!isOpen) return null;
 
   const handleReset = () => {
-    const defaultConfig: AppConfig = {
-      apiUrl: 'http://localhost:9000',
-      apiKey: 'test-service-key',
-      tenantId: 'jobbazaar',
-      userId: 'user-1',
-    };
-    setForm(defaultConfig);
+    setForm(DEFAULT_CONFIG);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -58,7 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </label>
             <div className="relative">
               <input
-                type="text"
+                type="url"
                 value={form.apiUrl}
                 onChange={(e) => setForm({ ...form, apiUrl: e.target.value })}
                 required
@@ -80,7 +81,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 value={form.apiKey}
                 onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
                 required
-                placeholder="test-service-key"
+                placeholder="change-me"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>

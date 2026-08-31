@@ -1,0 +1,11 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-9090}:80"
+    env_file:
+      - path: ${FRONTEND_ENV_FILE:-.env}
+        required: false
+    restart: unless-stopped

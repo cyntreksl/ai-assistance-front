@@ -4,11 +4,11 @@ export class RagApiClient {
   private config: AppConfig;
 
   constructor(config: AppConfig) {
-    this.config = config;
+    this.config = { ...config, apiUrl: config.apiUrl.replace(/\/+$/, '') };
   }
 
   public updateConfig(config: AppConfig) {
-    this.config = config;
+    this.config = { ...config, apiUrl: config.apiUrl.replace(/\/+$/, '') };
   }
 
   private get headers(): HeadersInit {
@@ -18,12 +18,29 @@ export class RagApiClient {
     };
   }
 
-  async checkHealth(): Promise<{ status: string; database?: boolean; vector_store?: boolean }> {
-    const res = await fetch(`${this.config.apiUrl}/health/ready`);
+  private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
+    const res = await fetch(`${this.config.apiUrl}${path}`, {
+      ...init,
+      headers: authenticated ? { ...this.headers, ...init?.headers } : init?.headers,
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    const data = contentType.includes('application/json') ? await res.json() : await res.text();
+
     if (!res.ok) {
-      throw new Error(`Health check failed: ${res.status} ${res.statusText}`);
+      const errorPayload = typeof data === 'object' && data !== null ? data : undefined;
+      const message =
+        errorPayload && 'error' in errorPayload && typeof errorPayload.error === 'object' && errorPayload.error
+          ? String((errorPayload.error as { message?: unknown }).message || '')
+          : '';
+      throw new Error(message || (typeof data === 'string' && data) || `Request failed with HTTP ${res.status}`);
     }
-    return res.json();
+
+    return data as T;
+  }
+
+  async checkHealth(): Promise<{ status: string; database?: boolean; vector_store?: boolean }> {
+    return this.request('/health/ready', undefined, false);
   }
 
   async upsertKnowledge(params: {
@@ -32,12 +49,10 @@ export class RagApiClient {
     content: string;
     contentFormat?: 'markdown' | 'text';
     sourceVersion?: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
   }): Promise<KnowledgeUpsertResult> {
-    const url = `${this.config.apiUrl}/v1/knowledge/${encodeURIComponent(params.knowledgeId)}`;
-    const res = await fetch(url, {
+    return this.request(`/v1/knowledge/${encodeURIComponent(params.knowledgeId)}`, {
       method: 'PUT',
-      headers: this.headers,
       body: JSON.stringify({
         tenant_id: this.config.tenantId,
         title: params.title,
@@ -47,47 +62,23 @@ export class RagApiClient {
         metadata: params.metadata || undefined,
       }),
     });
-
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = data?.error?.message || data?.detail || `Indexing failed with HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-    return data;
   }
 
   async deleteKnowledge(knowledgeId: string): Promise<{ knowledge_id: string; status: string }> {
-    const url = `${this.config.apiUrl}/v1/knowledge/${encodeURIComponent(knowledgeId)}?tenant_id=${encodeURIComponent(this.config.tenantId)}`;
-    const res = await fetch(url, {
+    return this.request(`/v1/knowledge/${encodeURIComponent(knowledgeId)}?tenant_id=${encodeURIComponent(this.config.tenantId)}`, {
       method: 'DELETE',
-      headers: this.headers,
     });
-
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = data?.error?.message || data?.detail || `Delete failed with HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-    return data;
   }
 
   async createChatSession(title?: string): Promise<ChatSession> {
-    const res = await fetch(`${this.config.apiUrl}/v1/chat/sessions`, {
+    return this.request('/v1/chat/sessions', {
       method: 'POST',
-      headers: this.headers,
       body: JSON.stringify({
         tenant_id: this.config.tenantId,
         external_user_id: this.config.userId,
         title: title || 'New Conversation',
       }),
     });
-
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = data?.error?.message || data?.detail || `Session creation failed with HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-    return data;
   }
 
   async listChatSessions(): Promise<ChatSession[]> {
@@ -95,16 +86,7 @@ export class RagApiClient {
       tenant_id: this.config.tenantId,
       external_user_id: this.config.userId,
     });
-    const res = await fetch(`${this.config.apiUrl}/v1/chat/sessions?${query.toString()}`, {
-      headers: this.headers,
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = data?.error?.message || data?.detail || `Failed to list sessions: HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-    return data;
+    return this.request(`/v1/chat/sessions?${query.toString()}`);
   }
 
   async getChatSession(sessionId: string): Promise<{
@@ -118,33 +100,18 @@ export class RagApiClient {
       sources: SourceTraceItem[];
     }>;
   }> {
-    const res = await fetch(`${this.config.apiUrl}/v1/chat/sessions/${sessionId}`, {
-      headers: this.headers,
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = data?.error?.message || data?.detail || `Failed to fetch session: HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-    return data;
+    const query = new URLSearchParams({ tenant_id: this.config.tenantId });
+    return this.request(`/v1/chat/sessions/${encodeURIComponent(sessionId)}?${query.toString()}`);
   }
 
   async sendMessage(
     sessionId: string,
     message: string
   ): Promise<{ message_id: string; answer: string; sources: SourceTraceItem[] }> {
-    const res = await fetch(`${this.config.apiUrl}/v1/chat/sessions/${sessionId}/messages`, {
+    const query = new URLSearchParams({ tenant_id: this.config.tenantId });
+    return this.request(`/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages?${query.toString()}`, {
       method: 'POST',
-      headers: this.headers,
       body: JSON.stringify({ message }),
     });
-
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = data?.error?.message || data?.detail || `Failed to send message: HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-    return data;
   }
 }

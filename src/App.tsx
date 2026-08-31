@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AppConfig } from './types';
+import { loadAppConfig, saveAppConfig } from './config';
 import { RagApiClient } from './api/client';
 import { KnowledgeTab } from './components/KnowledgeTab';
 import { ChatTab } from './components/ChatTab';
@@ -14,29 +15,8 @@ import {
   Loader2,
 } from 'lucide-react';
 
-const DEFAULT_CONFIG: AppConfig = {
-  apiUrl: 'http://localhost:9000',
-  apiKey: 'test-service-key',
-  tenantId: 'jobbazaar',
-  userId: 'user-1',
-};
-
 export const App: React.FC = () => {
-  const [config, setConfig] = useState<AppConfig>(() => {
-    const saved = localStorage.getItem('rag_app_config');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.tenantId === 'tenant-default') {
-          parsed.tenantId = 'jobbazaar';
-        }
-        return { ...DEFAULT_CONFIG, ...parsed };
-      } catch (e) {
-        return DEFAULT_CONFIG;
-      }
-    }
-    return DEFAULT_CONFIG;
-  });
+  const [config, setConfig] = useState<AppConfig>(loadAppConfig);
 
   const [apiClient] = useState<RagApiClient>(() => new RagApiClient(config));
   const [activeTab, setActiveTab] = useState<'knowledge' | 'chat'>('knowledge');
@@ -44,9 +24,9 @@ export const App: React.FC = () => {
   const [healthStatus, setHealthStatus] = useState<'checking' | 'connected' | 'error'>('checking');
 
   useEffect(() => {
-    localStorage.setItem('rag_app_config', JSON.stringify(config));
+    saveAppConfig(config);
     apiClient.updateConfig(config);
-    checkHealth();
+    void checkHealth();
   }, [config]);
 
   const checkHealth = async () => {
