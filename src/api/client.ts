@@ -1,4 +1,11 @@
-import { AppConfig, ChatSession, KnowledgeUpsertResult, SourceTraceItem } from '../types';
+import {
+  AppConfig,
+  ChatSession,
+  KnowledgeDocumentDetail,
+  KnowledgeListResponse,
+  KnowledgeUpsertResult,
+  SourceTraceItem,
+} from '../types';
 
 export class RagApiClient {
   private config: AppConfig;
@@ -68,6 +75,20 @@ export class RagApiClient {
         metadata: params.metadata || undefined,
       }),
     });
+  }
+
+  async listKnowledge(params?: { limit?: number; offset?: number }): Promise<KnowledgeListResponse> {
+    const query = new URLSearchParams({
+      tenant_id: this.config.tenantId,
+      limit: String(params?.limit ?? 50),
+      offset: String(params?.offset ?? 0),
+    });
+    return this.request(`/v1/knowledge?${query.toString()}`);
+  }
+
+  async getKnowledge(knowledgeId: string): Promise<KnowledgeDocumentDetail> {
+    const query = new URLSearchParams({ tenant_id: this.config.tenantId });
+    return this.request(`/v1/knowledge/${encodeURIComponent(knowledgeId)}?${query.toString()}`);
   }
 
   async deleteKnowledge(knowledgeId: string): Promise<{ knowledge_id: string; status: string }> {

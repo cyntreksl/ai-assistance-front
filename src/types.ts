@@ -36,3 +36,29 @@ export interface KnowledgeUpsertResult {
   chunk_count: number;
   content_hash: string;
 }
+
+export interface KnowledgeDocumentSummary {
+  knowledge_id: string;
+  title?: string | null;
+  content_format: 'markdown' | 'text' | string;
+  source_version?: string | null;
+  status: string;
+  chunk_count: number;
+  content_hash: string;
+  indexed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDocumentDetail extends KnowledgeDocumentSummary {
+  content?: string | null;
+  metadata?: Record<string, unknown> | null;
+  translation_variants: Record<string, string>;
+}
+
+export interface KnowledgeListResponse {
+  items: KnowledgeDocumentSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}

@@ -6,8 +6,6 @@ import { KnowledgeTab } from './components/KnowledgeTab';
 import { ChatTab } from './components/ChatTab';
 import { SettingsModal } from './components/SettingsModal';
 import {
-  BookOpen,
-  MessageSquare,
   Settings,
   Sparkles,
   CheckCircle,
@@ -15,13 +13,31 @@ import {
   Loader2,
 } from 'lucide-react';
 
+type AppRoute = 'knowledge' | 'chat';
+
+const getRouteFromPath = (): AppRoute => {
+  if (window.location.pathname === '/chat') return 'chat';
+  return 'knowledge';
+};
+
 export const App: React.FC = () => {
   const [config, setConfig] = useState<AppConfig>(loadAppConfig);
 
   const [apiClient] = useState<RagApiClient>(() => new RagApiClient(config));
-  const [activeTab, setActiveTab] = useState<'knowledge' | 'chat'>('knowledge');
+  const [activeRoute, setActiveRoute] = useState<AppRoute>(getRouteFromPath);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [healthStatus, setHealthStatus] = useState<'checking' | 'connected' | 'error'>('checking');
+
+  useEffect(() => {
+    if (window.location.pathname === '/') {
+      window.history.replaceState({}, '', '/knowledge');
+      setActiveRoute('knowledge');
+    }
+
+    const handlePopState = () => setActiveRoute(getRouteFromPath());
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     saveAppConfig(config);
@@ -59,32 +75,6 @@ export const App: React.FC = () => {
               </span>
             </span>
           </div>
-        </div>
-
-        {/* Center Tabs */}
-        <div className="flex items-center bg-slate-800/90 border border-slate-700/80 p-1 rounded-xl shadow-inner">
-          <button
-            onClick={() => setActiveTab('knowledge')}
-            className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
-              activeTab === 'knowledge'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" />
-            Knowledge Base
-          </button>
-          <button
-            onClick={() => setActiveTab('chat')}
-            className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
-              activeTab === 'chat'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            Chat Assistant
-          </button>
         </div>
 
         {/* Right Controls */}
@@ -127,7 +117,7 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto flex flex-col">
-        {activeTab === 'knowledge' ? (
+        {activeRoute === 'knowledge' ? (
           <KnowledgeTab apiClient={apiClient} tenantId={config.tenantId} />
         ) : (
           <ChatTab

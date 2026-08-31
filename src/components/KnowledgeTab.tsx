@@ -1,17 +1,40 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RagApiClient } from '../api/client';
-import { KnowledgeUpsertResult } from '../types';
-import { BookOpen, Upload, Trash2, CheckCircle2, AlertCircle, Sparkles, Hash, Layers } from 'lucide-react';
+import { KnowledgeDocumentSummary, KnowledgeUpsertResult } from '../types';
+import {
+  AlertCircle,
+  BookOpen,
+  CheckCircle2,
+  FileText,
+  Hash,
+  Languages,
+  Layers,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Trash2,
+} from 'lucide-react';
 
 interface KnowledgeTabProps {
   apiClient: RagApiClient;
   tenantId: string;
 }
 
+interface KnowledgeFormState {
+  knowledgeId: string;
+  title: string;
+  content: string;
+  format: 'markdown' | 'text';
+  version: string;
+  metadataJson: string;
+  translationVariants: Record<string, string>;
+}
+
 const SAMPLE_DOCS = [
   {
     title: 'Platform Architecture Guide',
-    knowledgeId: 'kb-arch-overview',
     content: `# Platform Architecture Overview
 
 ## Introduction
@@ -20,175 +43,389 @@ The Standalone RAG system is built with high-throughput multi-tenant vector inde
 ## Features
 - Content-aware semantic chunking with heading preservation.
 - Hybrid isolation per tenant.
-- Token budgeting and grounded prompt protection.
-
-## Deployment
-Services run on Docker Compose with PostgreSQL 16, Qdrant vector database, and FastAPI backend.`,
+- Token budgeting and grounded prompt protection.`,
   },
   {
     title: 'Customer Refund Policy',
-    knowledgeId: 'kb-refund-policy',
     content: `# Customer Refund and Cancellation Policy
 
 ## Standard Refunds
 Customers are eligible for a full refund within 30 days of initial purchase if service usage has not exceeded 1,000 API units.
-
-## Exceptions
-Custom enterprise agreements and specialized data training runs are non-refundable once initiated.
 
 ## Process
 To request a refund, submit a ticket via the billing portal with invoice ID and account reference.`,
   },
 ];
 
-export const KnowledgeTab: React.FC<KnowledgeTabProps> = ({ apiClient, tenantId }) => {
-  const [knowledgeId, setKnowledgeId] = useState('kb-doc-001');
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [format, setFormat] = useState<'markdown' | 'text'>('markdown');
-  const [version, setVersion] = useState('v1.0');
-  const [metadataJson, setMetadataJson] = useState('{\n  "category": "documentation"\n}');
+const emptyForm = (): KnowledgeFormState => ({
+  knowledgeId: '',
+  title: '',
+  content: '',
+  format: 'markdown',
+  version: 'v1.0',
+  metadataJson: '{\n  "category": "documentation"\n}',
+  translationVariants: {},
+});
 
-  const [loading, setLoading] = useState(false);
-  const [deleteLoading, setDeleteLoading] = useState(false);
+const slugify = (value: string) => {
+  const slug = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'knowledge';
+};
+
+const randomSuffix = () => Math.random().toString(16).slice(2, 8);
+
+const formatDate = (value?: string | null) => {
+  if (!value) return 'Not indexed';
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+};
+
+export const KnowledgeTab: React.FC<KnowledgeTabProps> = ({ apiClient, tenantId }) => {
+  const [documents, setDocuments] = useState<KnowledgeDocumentSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [form, setForm] = useState<KnowledgeFormState>(emptyForm);
+  const [query, setQuery] = useState('');
+  const [autoSuffix, setAutoSuffix] = useState(randomSuffix);
+  const [idManuallyEdited, setIdManuallyEdited] = useState(false);
+
+  const [listLoading, setListLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [lastResult, setLastResult] = useState<KnowledgeUpsertResult | null>(null);
-  const [deleteMsg, setDeleteMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleLoadSample = (sample: typeof SAMPLE_DOCS[0]) => {
-    setKnowledgeId(sample.knowledgeId);
-    setTitle(sample.title);
-    setContent(sample.content);
-    setFormat('markdown');
-    setVersion('v1.0');
+  const filteredDocuments = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return documents;
+    return documents.filter((doc) =>
+      `${doc.knowledge_id} ${doc.title || ''}`.toLowerCase().includes(needle)
+    );
+  }, [documents, query]);
+
+  const fetchDocuments = async () => {
+    setListLoading(true);
+    setErrorMsg(null);
+    try {
+      const data = await apiClient.listKnowledge({ limit: 100, offset: 0 });
+      setDocuments(data.items);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to load knowledge documents.');
+    } finally {
+      setListLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setSelectedId(null);
+    setForm(emptyForm());
+    setAutoSuffix(randomSuffix());
+    setIdManuallyEdited(false);
+    void fetchDocuments();
+  }, [tenantId]);
+
+  const handleNew = () => {
+    setSelectedId(null);
+    setForm(emptyForm());
+    setAutoSuffix(randomSuffix());
+    setIdManuallyEdited(false);
     setLastResult(null);
-    setDeleteMsg(null);
+    setSuccessMsg(null);
     setErrorMsg(null);
   };
 
-  const handleUpsert = async (e: React.FormEvent) => {
+  const handleLoadSample = (sample: (typeof SAMPLE_DOCS)[number]) => {
+    const suffix = randomSuffix();
+    setAutoSuffix(suffix);
+    setSelectedId(null);
+    setIdManuallyEdited(false);
+    setLastResult(null);
+    setSuccessMsg(null);
+    setErrorMsg(null);
+    setForm({
+      ...emptyForm(),
+      title: sample.title,
+      knowledgeId: `${slugify(sample.title)}-${suffix}`,
+      content: sample.content,
+      format: 'markdown',
+    });
+  };
+
+  const loadDocument = async (knowledgeId: string) => {
+    setSelectedId(knowledgeId);
+    setDetailLoading(true);
+    setLastResult(null);
+    setSuccessMsg(null);
+    setErrorMsg(null);
+    try {
+      const detail = await apiClient.getKnowledge(knowledgeId);
+      setForm({
+        knowledgeId: detail.knowledge_id,
+        title: detail.title || '',
+        content: detail.content || '',
+        format: detail.content_format === 'text' ? 'text' : 'markdown',
+        version: detail.source_version || '',
+        metadataJson: detail.metadata ? JSON.stringify(detail.metadata, null, 2) : '',
+        translationVariants: detail.translation_variants || {},
+      });
+      setIdManuallyEdited(true);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to load knowledge document.');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleTitleChange = (title: string) => {
+    setForm((prev) => ({
+      ...prev,
+      title,
+      knowledgeId: idManuallyEdited ? prev.knowledgeId : title.trim() ? `${slugify(title)}-${autoSuffix}` : '',
+    }));
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!knowledgeId.trim() || !title.trim() || !content.trim()) {
-      setErrorMsg('Knowledge ID, Title, and Content are required.');
+    const title = form.title.trim();
+    const content = form.content.trim();
+    const knowledgeId = (form.knowledgeId.trim() || `${slugify(title)}-${autoSuffix}`).trim();
+
+    if (!title || !content || !knowledgeId) {
+      setErrorMsg('Knowledge ID, title, and content are required.');
       return;
     }
 
-    let parsedMeta: Record<string, any> | undefined = undefined;
-    if (metadataJson.trim()) {
+    let metadata: Record<string, unknown> | undefined;
+    if (form.metadataJson.trim()) {
       try {
-        parsedMeta = JSON.parse(metadataJson);
-      } catch (err) {
-        setErrorMsg('Invalid Metadata JSON syntax.');
+        metadata = JSON.parse(form.metadataJson);
+      } catch {
+        setErrorMsg('Invalid metadata JSON syntax.');
         return;
       }
     }
 
-    setLoading(true);
+    setSaving(true);
     setErrorMsg(null);
-    setDeleteMsg(null);
+    setSuccessMsg(null);
     try {
-      const res = await apiClient.upsertKnowledge({
-        knowledgeId: knowledgeId.trim(),
-        title: title.trim(),
-        content: content.trim(),
-        contentFormat: format,
-        sourceVersion: version.trim() || undefined,
-        metadata: parsedMeta,
+      const result = await apiClient.upsertKnowledge({
+        knowledgeId,
+        title,
+        content,
+        contentFormat: form.format,
+        sourceVersion: form.version.trim() || undefined,
+        metadata,
       });
-      setLastResult(res);
+      setLastResult(result);
+      await fetchDocuments();
+      await loadDocument(knowledgeId);
+      setLastResult(result);
+      setSuccessMsg(`Saved and indexed "${knowledgeId}" with multilingual variants.`);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to index knowledge document.');
+      setErrorMsg(err.message || 'Failed to save knowledge document.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!knowledgeId.trim()) {
-      setErrorMsg('Enter a Knowledge ID to delete.');
+    const knowledgeId = form.knowledgeId.trim();
+    if (!knowledgeId) {
+      setErrorMsg('Select or enter a Knowledge ID to delete.');
       return;
     }
-    if (!confirm(`Are you sure you want to delete knowledge document "${knowledgeId}" for tenant "${tenantId}"?`)) {
-      return;
-    }
+    if (!confirm(`Delete knowledge document "${knowledgeId}" for tenant "${tenantId}"?`)) return;
 
-    setDeleteLoading(true);
+    setDeleting(true);
     setErrorMsg(null);
-    setDeleteMsg(null);
+    setSuccessMsg(null);
     setLastResult(null);
     try {
-      const res = await apiClient.deleteKnowledge(knowledgeId.trim());
-      setDeleteMsg(`Document "${res.knowledge_id}" deleted from vector store & registry.`);
+      await apiClient.deleteKnowledge(knowledgeId);
+      handleNew();
+      setSuccessMsg(`Deleted "${knowledgeId}".`);
+      await fetchDocuments();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to delete knowledge document.');
     } finally {
-      setDeleteLoading(false);
+      setDeleting(false);
     }
   };
 
+  const selectedDocument = documents.find((doc) => doc.knowledge_id === selectedId);
+  const translationEntries = Object.entries(form.translationVariants);
+
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      {/* Header & Quick Samples */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 backdrop-blur-sm shadow-md">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-emerald-400" />
-            Knowledge Base Manager
-          </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Chunk, embed, and index Markdown or text knowledge documents into Qdrant for tenant <span className="font-mono text-emerald-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-700">{tenantId}</span>.
-          </p>
+    <div className="flex-1 overflow-hidden max-w-7xl mx-auto w-full p-4 gap-4 grid grid-cols-1 lg:grid-cols-[320px_1fr]">
+      <aside className="bg-slate-800/70 border border-slate-700/80 rounded-xl overflow-hidden flex flex-col min-h-[320px] shadow-sm">
+        <div className="p-4 border-b border-slate-700/80 flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-sm font-semibold text-white flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              Knowledge Base
+            </h1>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Tenant <span className="font-mono text-emerald-300">{tenantId}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={fetchDocuments}
+            disabled={listLoading}
+            title="Refresh documents"
+            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${listLoading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            Quick Presets:
-          </span>
-          {SAMPLE_DOCS.map((s, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => handleLoadSample(s)}
-              className="text-xs bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 px-2.5 py-1.5 rounded-lg transition"
-            >
-              {s.title.split(' ')[0]}
-            </button>
-          ))}
+        <div className="p-3 space-y-3 border-b border-slate-700/80">
+          <button
+            type="button"
+            onClick={handleNew}
+            className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium py-2 px-3 rounded-lg transition shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            New Document
+          </button>
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search title or ID"
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            />
+          </div>
         </div>
-      </div>
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Form Column */}
-        <form onSubmit={handleUpsert} className="lg:col-span-2 space-y-4 bg-slate-800/50 border border-slate-700/60 rounded-xl p-6 shadow-sm">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                Knowledge ID *
-              </label>
-              <input
-                type="text"
-                value={knowledgeId}
-                onChange={(e) => setKnowledgeId(e.target.value)}
-                required
-                placeholder="e.g. doc-product-guide"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
-              />
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {listLoading ? (
+            <div className="flex justify-center items-center py-8 text-slate-500 text-xs">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              Loading documents...
             </div>
+          ) : filteredDocuments.length === 0 ? (
+            <div className="text-center py-10 px-4 text-xs text-slate-500">
+              No knowledge documents found.
+            </div>
+          ) : (
+            filteredDocuments.map((doc) => {
+              const isActive = doc.knowledge_id === selectedId;
+              return (
+                <button
+                  key={doc.knowledge_id}
+                  type="button"
+                  onClick={() => loadDocument(doc.knowledge_id)}
+                  className={`w-full text-left p-3 rounded-lg text-xs transition border ${
+                    isActive
+                      ? 'bg-slate-700 text-white border-slate-600'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-750 border-transparent'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-500'}`} />
+                    <span className="font-medium truncate">{doc.title || 'Untitled Document'}</span>
+                  </div>
+                  <div className="font-mono text-[10px] text-slate-500 mt-1 truncate">{doc.knowledge_id}</div>
+                  <div className="flex items-center justify-between gap-2 mt-2 text-[10px]">
+                    <span className="uppercase text-emerald-400">{doc.status}</span>
+                    <span className="text-slate-500">{doc.chunk_count} chunks</span>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </aside>
 
+      <section className="overflow-y-auto bg-slate-800/50 border border-slate-700/80 rounded-xl shadow-sm">
+        <form onSubmit={handleSave} className="p-5 sm:p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 pb-4 border-b border-slate-700/80">
+            <div>
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-emerald-400" />
+                {selectedId ? 'Edit Knowledge Document' : 'Create Knowledge Document'}
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Save the original once; English, Sinhala, Tamil, and Singlish variants are generated for retrieval.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {SAMPLE_DOCS.map((sample) => (
+                <button
+                  key={sample.title}
+                  type="button"
+                  onClick={() => handleLoadSample(sample)}
+                  className="text-xs bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 px-2.5 py-1.5 rounded-lg transition"
+                >
+                  {sample.title.split(' ')[0]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {(errorMsg || successMsg || detailLoading) && (
+            <div
+              className={`p-3.5 border rounded-xl text-xs flex items-start gap-2.5 ${
+                errorMsg
+                  ? 'bg-red-950/60 border-red-800/80 text-red-200'
+                  : 'bg-emerald-950/50 border-emerald-800/70 text-emerald-200'
+              }`}
+            >
+              {detailLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-400 shrink-0 mt-0.5" />
+              ) : errorMsg ? (
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              )}
+              <span>{detailLoading ? 'Loading document details...' : errorMsg || successMsg}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
                 Document Title *
               </label>
               <input
                 type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                value={form.title}
+                onChange={(e) => handleTitleChange(e.target.value)}
                 required
-                placeholder="e.g. System Overview & Setup"
+                placeholder="e.g. Refund Policy"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                Knowledge ID *
+              </label>
+              <div className="relative">
+                <Hash className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={form.knowledgeId}
+                  onChange={(e) => {
+                    setIdManuallyEdited(true);
+                    setForm((prev) => ({ ...prev, knowledgeId: e.target.value }));
+                  }}
+                  required
+                  placeholder="auto-generated from title"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
             </div>
           </div>
 
@@ -198,8 +435,8 @@ export const KnowledgeTab: React.FC<KnowledgeTabProps> = ({ apiClient, tenantId 
                 Content Format
               </label>
               <select
-                value={format}
-                onChange={(e) => setFormat(e.target.value as any)}
+                value={form.format}
+                onChange={(e) => setForm((prev) => ({ ...prev, format: e.target.value as 'markdown' | 'text' }))}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
               >
                 <option value="markdown">Markdown</option>
@@ -213,8 +450,8 @@ export const KnowledgeTab: React.FC<KnowledgeTabProps> = ({ apiClient, tenantId 
               </label>
               <input
                 type="text"
-                value={version}
-                onChange={(e) => setVersion(e.target.value)}
+                value={form.version}
+                onChange={(e) => setForm((prev) => ({ ...prev, version: e.target.value }))}
                 placeholder="e.g. v1.0.4"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
@@ -223,12 +460,12 @@ export const KnowledgeTab: React.FC<KnowledgeTabProps> = ({ apiClient, tenantId 
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-              Document Content (Markdown / Text) *
+              Original Content *
             </label>
             <textarea
-              rows={10}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
+              rows={12}
+              value={form.content}
+              onChange={(e) => setForm((prev) => ({ ...prev, content: e.target.value }))}
               required
               placeholder="# Enter document headings and content here..."
               className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono text-xs leading-relaxed"
@@ -237,121 +474,85 @@ export const KnowledgeTab: React.FC<KnowledgeTabProps> = ({ apiClient, tenantId 
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-              Metadata (JSON format, optional)
+              Metadata JSON
             </label>
             <textarea
               rows={3}
-              value={metadataJson}
-              onChange={(e) => setMetadataJson(e.target.value)}
-              placeholder='{ "author": "dev", "tag": "core" }'
+              value={form.metadataJson}
+              onChange={(e) => setForm((prev) => ({ ...prev, metadataJson: e.target.value }))}
+              placeholder='{ "category": "operations" }'
               className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-300 focus:outline-none focus:border-emerald-500"
             />
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-700">
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleteLoading || loading}
-              className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium text-red-400 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 rounded-lg transition disabled:opacity-50"
-            >
-              <Trash2 className="w-4 h-4" />
-              {deleteLoading ? 'Deleting...' : 'Delete Document'}
-            </button>
-
-            <button
-              type="submit"
-              disabled={loading || deleteLoading}
-              className="flex items-center gap-2 px-6 py-2.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition shadow-md shadow-emerald-950/50 disabled:opacity-50"
-            >
-              <Upload className="w-4 h-4" />
-              {loading ? 'Indexing into Qdrant...' : 'Index / Upsert Document'}
-            </button>
-          </div>
-        </form>
-
-        {/* Status / Output Panel */}
-        <div className="space-y-4">
-          {/* Status feedback */}
-          {errorMsg && (
-            <div className="p-4 bg-red-950/60 border border-red-800/80 rounded-xl text-red-200 text-xs flex items-start gap-2.5 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <div>
-                <strong className="font-semibold block mb-0.5">Operation Failed</strong>
-                <p className="opacity-90">{errorMsg}</p>
-              </div>
-            </div>
-          )}
-
-          {deleteMsg && (
-            <div className="p-4 bg-emerald-950/60 border border-emerald-800/80 rounded-xl text-emerald-200 text-xs flex items-start gap-2.5 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <strong className="font-semibold block mb-0.5">Deleted</strong>
-                <p className="opacity-90">{deleteMsg}</p>
+          {translationEntries.length > 0 && (
+            <div className="space-y-3 border border-slate-700/70 rounded-xl p-4 bg-slate-900/40">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Languages className="w-4 h-4 text-emerald-400" />
+                Read-only Indexed Variants
+              </h3>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                {translationEntries.map(([language, value]) => (
+                  <div key={language} className="space-y-1.5">
+                    <label className="text-[11px] uppercase font-semibold tracking-wider text-slate-400">
+                      {language}
+                    </label>
+                    <textarea
+                      readOnly
+                      rows={4}
+                      value={value}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-400 resize-none"
+                    />
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
           {lastResult && (
-            <div className="bg-slate-800/80 border border-emerald-500/40 rounded-xl p-5 space-y-4 shadow-lg animate-in fade-in">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-700">
-                <span className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Successfully Indexed
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5" />
+                  Chunks
                 </span>
-                <span className="text-xs px-2 py-0.5 bg-emerald-950 text-emerald-300 border border-emerald-700/50 rounded uppercase font-mono">
-                  {lastResult.status}
-                </span>
+                <p className="font-mono text-emerald-300 font-bold text-base">{lastResult.chunk_count}</p>
               </div>
-
-              <div className="space-y-3 text-xs">
-                <div className="flex items-center justify-between bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400 flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5 text-slate-500" />
-                    Semantic Chunks:
-                  </span>
-                  <span className="font-mono text-emerald-300 font-bold text-sm">
-                    {lastResult.chunk_count}
-                  </span>
-                </div>
-
-                <div className="space-y-1 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400 flex items-center gap-1.5">
-                    <Hash className="w-3.5 h-3.5 text-slate-500" />
-                    Content SHA-256:
-                  </span>
-                  <p className="font-mono text-[11px] text-slate-300 break-all select-all">
-                    {lastResult.content_hash}
-                  </p>
-                </div>
-
-                <div className="space-y-1 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400">Knowledge ID:</span>
-                  <p className="font-mono text-slate-200 font-medium">
-                    {lastResult.knowledge_id}
-                  </p>
-                </div>
+              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800 sm:col-span-2">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <Hash className="w-3.5 h-3.5" />
+                  Content SHA-256
+                </span>
+                <p className="font-mono text-[11px] text-slate-300 break-all">{lastResult.content_hash}</p>
               </div>
             </div>
           )}
 
-          {/* Info Card */}
-          <div className="bg-slate-800/40 border border-slate-700/40 rounded-xl p-5 text-xs text-slate-400 space-y-3">
-            <h3 className="font-semibold text-slate-200 flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              How Indexing Works
-            </h3>
-            <ul className="list-disc list-inside space-y-1.5 leading-relaxed">
-              <li>Documents are parsed with Markdown hierarchy awareness to preserve section context.</li>
-              <li>Chunks are vectorized with OpenAI <code className="text-slate-300">text-embedding-3-small</code> (1536 dim).</li>
-              <li>Stored into Qdrant with tenant payload isolation.</li>
-              <li>Upserts are idempotent; updates atomically replace previous chunks.</li>
-            </ul>
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-700/80">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting || saving || !form.knowledgeId.trim()}
+              className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium text-red-400 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 rounded-lg transition disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              {deleting ? 'Deleting...' : 'Delete'}
+            </button>
+
+            <div className="flex flex-wrap items-center justify-end gap-3 text-[11px] text-slate-500">
+              {selectedDocument && <span>Last updated {formatDate(selectedDocument.updated_at)}</span>}
+              <button
+                type="submit"
+                disabled={saving || deleting}
+                className="flex items-center gap-2 px-6 py-2.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition shadow-md shadow-emerald-950/50 disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saving ? 'Saving and translating...' : 'Save / Index'}
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
+        </form>
+      </section>
     </div>
   );
 };
