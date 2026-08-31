@@ -33,3 +33,30 @@ All `VITE_*` settings are delivered to the browser and are therefore visible
 to users. This UI is intended for trusted/admin use; do not treat the service
 API key as a browser-held secret on a public deployment. Put an authenticated
 backend-for-frontend or gateway in front of the API for public access.
+
+## Vercel deployment
+
+This repo includes:
+
+- `vercel.json` - Vite build/output settings plus SPA fallback.
+- `.env.production.example` - production env var checklist.
+
+Create a Vercel project from this repository and set:
+
+```text
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
+```
+
+Environment variables:
+
+```text
+VITE_RAG_API_URL=https://your-render-service.onrender.com
+VITE_RAG_API_KEY=<same value as API SERVICE_API_KEY>
+VITE_RAG_TENANT_ID=jobbazaar
+VITE_RAG_USER_ID=user-1
+```
+
+After Vercel deploys, add the Vercel production origin to the API service's
+`CORS_ALLOWED_ORIGINS` on Render and redeploy/restart the API.
